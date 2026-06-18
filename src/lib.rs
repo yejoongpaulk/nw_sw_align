@@ -146,12 +146,14 @@ pub fn scoring_matrix_linear_gap(seq1: &[u8], seq2: &[u8], match_score: i32, mis
     let prev_ptr = unsafe {alloc(prev_layout)} as *mut i32;
 
     // create vector of vectors
-    let mut vectors = Vec::with_capacity(n);
+    // let mut vectors = Vec::with_capacity(n);
+    let mut vectors = Vec::new();
 
     // initialize first row of penalties
     unsafe {
         // create first vector row
-        let mut vec_to_add = Vec::with_capacity(m);
+        // let mut vec_to_add = Vec::with_capacity(m);
+        let mut vec_to_add = Vec::new();
 
         // create very first cell (0)
         vec_to_add.push((0, NO_DIRECTION));
@@ -203,7 +205,8 @@ pub fn scoring_matrix_linear_gap(seq1: &[u8], seq2: &[u8], match_score: i32, mis
         }
 
         // prepare a vector to add to vectors
-        let mut vec_to_add = Vec::with_capacity(m);
+        // let mut vec_to_add = Vec::with_capacity(m);
+        let mut vec_to_add = Vec::new();
         
         // add gap penalty and direction; if local, then indicate no direction
         let obj_to_add = if is_local {(temp_left, NO_DIRECTION)} else {(temp_left, UP_DIRECTION)};

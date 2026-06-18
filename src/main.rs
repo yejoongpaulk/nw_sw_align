@@ -11,8 +11,8 @@ fn main() {
     let mut rng = rand::rng();
 
     // length of sequence for seq1 and seq2 respectively
-    let sequence_length_1 = 10000;
-    let sequence_length_2 = 20000;
+    let sequence_length_1 = 50000;
+    let sequence_length_2 = 50000;
 
 
     // sample case
