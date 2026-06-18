@@ -1,51 +1,135 @@
 use std::alloc::{alloc, dealloc, Layout};
 
 
-const NUM_DIRECTIONS: usize = 3;
+// constants for hard-coded direction values.
+const NO_DIRECTION: i32 = -1;
+const LEFT_DIRECTION: i32 = 0;
+const DIAGONAL_DIRECTION: i32 = 1;
+const UP_DIRECTION: i32 = 2;
 
 
 /// Comparison function for linear gap alignment. It
-/// expects a 3-element array, such that the first element
-/// is the "left" score, the second is the "diagonal" score, and
-/// the third is the "top" score.
+/// expects three scores: the "left," "diagonal," and "up" scores.
 /// 
-/// Returns a 3-element boolean array, with each element
-/// being True if its respective direction (i.e. first element
-/// corresponds to "left", second element corresponds to "diagonal", etc.) is
-/// the direction that is "maximum."
-fn score_comparison(list: &[i32; NUM_DIRECTIONS], is_local: bool) -> (i32, [bool; NUM_DIRECTIONS]) {
-    // first find maximum
+/// It returns the maximum score (i32) and the direction (i32) representing a
+/// hard-coded direction (see constants).
+fn score_comparison(left: i32, diagonal: i32, up: i32, is_local: bool) -> (i32, i32) {
+    // maximum and direction values
     let mut max;
+    let mut direction;
 
-    max = if list[0] > list[1] {list[0]} else {list[1]};
-    max = if max > list[2] {max} else {list[2]};
+    // compare the "left" score vs. the "diagonal" score, then the "up" score
+    if left > diagonal {
+        max = left;
+        direction = LEFT_DIRECTION;
+    } else {
+        max = diagonal;
+        direction = DIAGONAL_DIRECTION;
+    }
 
-    // if local alignment is specified, compare maximum against "0"
+    if up > max {
+        max = up;
+        direction = UP_DIRECTION;
+    }
+
+    // if local alignment is specified, compare maximum against "0." If it turns out that
+    // the "0" score wins, then that means, in local alignment, it should return "no direction."
     if is_local {
         max = if max > 0 {max} else {0};
+        return (max, NO_DIRECTION);
     }
 
-    // now, determine which directions the alignments will go
-    let mut directions = [false; NUM_DIRECTIONS];
+    (max, direction)
+}
 
-    // if local alignment and score is 0, then just return
-    // a cell telling the program to stop at this cell
-    if max == 0 && is_local {
-        return (max, directions)
+
+/// Naive version of "scoring_matrix_linear_gap" that uses only safe functions and
+/// constructs in Rust.
+pub fn scoring_matrix_linear_gap_naive(seq1: &[u8], seq2: &[u8], match_score: i32, mismatch_penalty: i32, gap_penalty: i32, is_local: bool) -> (i32, (usize, usize), Vec<Vec<(i32, i32)>>) {
+    // prepare sizes
+    let n = seq1.len() + 1;
+    let m = seq2.len() + 1;
+
+    // prepare max, i_max, j_max for local alignment
+    let mut max = 0;
+    let mut i_max = 0;
+    let mut j_max = 0;
+
+    // create matrix
+    let mut matrix: Vec<Vec<(i32, i32)>> = Vec::new();
+
+    // initialize first row
+    let mut first_row = Vec::new();
+
+    // push first cell
+    first_row.push((0, NO_DIRECTION));
+
+    for j in 1..m {
+        if is_local {
+            first_row.push((0, NO_DIRECTION));
+        } else {
+            // calculate the current score for the first row
+            let value = j as i32 * gap_penalty;
+
+            // set the value to the ptr
+            first_row.push((value, LEFT_DIRECTION));
+        }
     }
 
-    for i in 0..list.len() {
-        if list[i] == max {directions[i] = true};
+    matrix.push(first_row);
+
+    // for each row, first push the "first column" cell, then
+    // push each subsequent cell
+    for i in 1..n {
+        // create row
+        let mut row = Vec::new();
+
+        row.push((i as i32 * gap_penalty, UP_DIRECTION));
+
+        // update max for local alignment
+        if is_local {
+            if row[0].0 > max {
+                max = row[0].0;
+                i_max = i;
+                j_max = 0;
+            }
+        }
+
+        // add each column
+        for j in 1..m {
+            row.push(
+                score_comparison(
+                row[j - 1].0 + gap_penalty,
+                matrix[i - 1][j - 1].0 + if seq1[i - 1] == seq2[j - 1] {match_score} else {mismatch_penalty},
+                matrix[i - 1][j].0 + gap_penalty,
+                is_local
+                )
+            );
+
+            // update max for local alignment
+            if is_local {
+                if row[j].0 > max {
+                    max = row[j].0;
+                    i_max = i;
+                    j_max = j;
+                }
+            }
+        }
+
+        matrix.push(row);
     }
 
-    (max, directions)
+    if is_local {
+        return (max, (i_max, j_max), matrix);
+    }
+
+    (matrix[n - 1][m - 1].0, (n - 1, m - 1), matrix)
 }
 
 
 /// Build scoring matrix for either global or local alignment
 /// with a linear gap scoring system.
-fn scoring_matrix_linear_gap(seq1: &[u8], seq2: &[u8], max_function: fn(&[i32; NUM_DIRECTIONS], bool) -> (i32, [bool; NUM_DIRECTIONS]),
-match_score: i32, mismatch_penalty: i32, gap_penalty: i32, is_local: bool) -> (i32, (usize, usize), Vec<Vec<(i32, [bool; NUM_DIRECTIONS])>>) {
+pub fn scoring_matrix_linear_gap(seq1: &[u8], seq2: &[u8], match_score: i32, mismatch_penalty: i32, gap_penalty: i32, is_local: bool) -> (i32, (usize, usize), Vec<Vec<(i32, i32)>>) {
     // prepare sizes
     let n = seq1.len() + 1;
     let m = seq2.len() + 1;
@@ -70,31 +154,33 @@ match_score: i32, mismatch_penalty: i32, gap_penalty: i32, is_local: bool) -> (i
         let mut vec_to_add = Vec::with_capacity(m);
 
         // create very first cell (0)
-        vec_to_add.push((0, [false, false, false]));
+        vec_to_add.push((0, NO_DIRECTION));
         *prev_ptr.add(0) = 0;
 
         // set the memory pointer values to the first row of penalties
         for j in 1..m {
             if is_local {
                 *prev_ptr.add(j) = 0;
-                vec_to_add.push((0, [false, false, false]));
+                vec_to_add.push((0, NO_DIRECTION));
             } else {
                 // calculate the current score for the first row
                 let value = j as i32 * gap_penalty;
 
                 // set the value to the ptr
                 *prev_ptr.add(j) = value;
-                vec_to_add.push((value, [true, false, false]));
+                vec_to_add.push((value, LEFT_DIRECTION));
             }
         }
 
         vectors.push(vec_to_add);
     }
 
-    // create mutable array of left, diag, and top
-    // scores, respectively
-    let mut scores = [0, 0, 0];
 
+    // temp variables holding left, diagonal, and top
+    // scores, respectively
+    let mut temp_left;
+    let mut temp_diagonal;
+    let mut temp_up;
 
     // temp variables for current max
     // and the prev score[0] value
@@ -104,31 +190,42 @@ match_score: i32, mismatch_penalty: i32, gap_penalty: i32, is_local: bool) -> (i
     // obtain the optimal alignment score
     // calculate row-by-row dynamic programming matrix
     for i in 1..n {
-        // "left" value
-        scores[0] = if is_local {0} else {i as i32 * gap_penalty};
+        // "left-most" score (the first cell in the row)
+        temp_left = if is_local {0} else {i as i32 * gap_penalty};
         
+        // update max for local alignment
+        if is_local {
+            if temp_left > max {
+                max = temp_left;
+                i_max = i;
+                j_max = 0;
+            }
+        }
+
         // prepare a vector to add to vectors
         let mut vec_to_add = Vec::with_capacity(m);
         
-        // prepare gap penalty at current row, first column
-        let obj_to_add = if is_local {(scores[0], [false, false, false])} else {(scores[0], [false, false, true])};
+        // add gap penalty and direction; if local, then indicate no direction
+        let obj_to_add = if is_local {(temp_left, NO_DIRECTION)} else {(temp_left, UP_DIRECTION)};
         vec_to_add.push(obj_to_add);
 
-        prev = scores[0];
-        scores[0] += gap_penalty;
+        // prepare to compare against diagonal and up scores
+        prev = temp_left;
+        temp_left += gap_penalty;
+
 
         // calculate scores
         for j in 1..m {
             unsafe {
                 // get diagonal score
-                scores[1] = *prev_ptr.add(j - 1) + (if seq1[i - 1] == seq2[j - 1] {match_score} else {mismatch_penalty});
+                temp_diagonal = *prev_ptr.add(j - 1) + (if seq1.get_unchecked(i - 1) == seq2.get_unchecked(j - 1) {match_score} else {mismatch_penalty});
     
-                // get top score
-                scores[2] = *prev_ptr.add(j) + gap_penalty;
+                // get up score
+                temp_up = *prev_ptr.add(j) + gap_penalty;
             }
 
             // get max score and directions
-            let output_tup = max_function(&scores, is_local);
+            let output_tup = score_comparison(temp_left, temp_diagonal, temp_up, is_local);
             curr = output_tup.0;
 
             // push current score and directions to the current row
@@ -143,14 +240,16 @@ match_score: i32, mismatch_penalty: i32, gap_penalty: i32, is_local: bool) -> (i
             prev = curr;
 
             // set max
-            if curr > max {
-                max = curr;
-                i_max = i;
-                j_max = j;
+            if is_local {
+                if curr > max {
+                    max = curr;
+                    i_max = i;
+                    j_max = j;
+                }
             }
 
             // update the "left" score to the current score
-            scores[0] = curr + gap_penalty;
+            temp_left = curr + gap_penalty;
         }
 
         // add new vector to overall vector of vectors
@@ -176,98 +275,54 @@ match_score: i32, mismatch_penalty: i32, gap_penalty: i32, is_local: bool) -> (i
 }
 
 
+
 /// Reconstruct a global or local alignment, given
-/// the full scoring matrix.
-fn reconstruct_alignment(seq1: &str, seq2: &str, matrix: Vec<Vec<(i32, [bool; NUM_DIRECTIONS])>>, starting_pos: (usize, usize), is_local: bool) -> Vec<[String; 2]> {
+/// the full scoring matrix and a starting position.
+pub fn reconstruct_alignment(seq1: &[u8], seq2: &[u8], matrix: Vec<Vec<(i32, i32)>>, starting_pos: (usize, usize)) -> Vec<String> {
     // get starting position
     let (mut i, mut j) = starting_pos;
 
-    let seq1 = seq1.as_bytes();
-    let seq2 = seq2.as_bytes();
-
     // create vector of alignments
-    let mut alignments = vec![[String::new(), String::new()]];
+    let mut alignments = vec![String::new(), String::new()];
 
-    // local alignment
-    if is_local {
-        // construct alignment until a "0" is found
-        loop {
-            let (score, directions) = matrix[i][j];
-            if score != 0 {
-                // count the number of possible paths
-                let mut count = 0;
+    // loop through the dp matrix until a cell with "NO_DIRECTION" is found
+    while matrix[i][j].1 != NO_DIRECTION {
+        // get the direction of the current cell
+        let (_, direction) = matrix[i][j];
 
-                // prefer the score that says to go "align"
-                let go_left = directions[0];
-                let go_diag = directions[1];
-                let go_up = directions[2];
-
-                // go left
-                if go_left {
-                    alignments[0][0].push('-');
-                    alignments[0][1].push(seq2[j - 1] as char);
-                    j -= 1;
-                    continue;
-                }
-
-                if go_diag {
-                    alignments[0][0].push(seq1[i - 1] as char);
-                    alignments[0][1].push(seq2[j - 1] as char);
-                    i -= 1;
-                    j -= 1;
-                    continue;
-                }
-
-                if go_up {
-                    alignments[0][0].push(seq1[i - 1] as char);
-                    alignments[0][1].push('-');
-                    i -= 1;
-                    continue;
-                }
-            } else {
-                break;
-            }
-        }
-    } else {
-        // construct alignment until a "0" is found
-        while i > 0 || j > 0 {
-            let (score, directions) = matrix[i][j];
+        // go left, diagonal, or up
+        if direction == LEFT_DIRECTION {
+            // left direction - add a gap to the first sequence,
+            // and iterate the current cell back one column
+            alignments[0].push('-');
+            alignments[1].push(seq2[j - 1] as char);
             
-            // count the number of possible paths
-            let mut count = 0;
-
-            // prefer the score that says to go "align"
-            let go_left = directions[0];
-            let go_diag = directions[1];
-            let go_up = directions[2];
-
-            // go left
-            if go_left {
-                alignments[0][0].push('-');
-                alignments[0][1].push(seq2[j - 1] as char);
-                j -= 1;
-                continue;
-            }
-
-            if go_diag {
-                alignments[0][0].push(seq1[i - 1] as char);
-                alignments[0][1].push(seq2[j - 1] as char);
-                i -= 1;
-                j -= 1;
-                continue;
-            }
-
-            if go_up {
-                alignments[0][0].push(seq1[i - 1] as char);
-                alignments[0][1].push('-');
-                i -= 1;
-                continue;
-            }
+            j -= 1;
+        } else if direction == DIAGONAL_DIRECTION {
+            // diagonal direction - match (or mismatch) the two
+            // characters, and iterate current cell back one column
+            // and one row
+            alignments[0].push(seq1[i - 1] as char);
+            alignments[1].push(seq2[j - 1] as char);
+            
+            i -= 1;
+            j -= 1;
+        } else if direction == UP_DIRECTION {
+            // up direction - add a gap to the second sequence,
+            // and iterate the current cell back one row
+            alignments[0].push(seq1[i - 1] as char);
+            alignments[1].push('-');
+            
+            i -= 1;
+        } else {
+            break;
         }
     }
 
-    alignments[0][0] = alignments[0][0].chars().rev().collect();
-    alignments[0][1] = alignments[0][1].chars().rev().collect();
+    // reconstruct and reverse the string alignments
+    alignments[0] = alignments[0].chars().rev().collect();
+    alignments[1] = alignments[1].chars().rev().collect();
 
+    // return alignments
     alignments
 }
